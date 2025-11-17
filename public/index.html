@@ -125,6 +125,14 @@
         <div id="connectionStatus" class="status disconnected">
             Desconectado de WhatsApp
         </div>
+
+        <div id="sessionsSection" style="margin-top:20px;">
+            <h3>Sesiones</h3>
+            <div class="instructions">
+                <p>Lista de sesiones creadas y su estado de conexión.</p>
+            </div>
+            <ul id="sessionsList"></ul>
+        </div>
         
         <div id="qrSection" style="display: none;">
             <h2>Escanear código QR</h2>
@@ -135,31 +143,25 @@
         </div>
         
         <div id="pairingSection" class="pairing-form">
-            <h2>Conectar con código de emparejamiento</h2>
-            <div class="instructions">
-                <p><strong>Instrucciones:</strong></p>
-                <ol>
-                    <li>Ingresa tu número de teléfono en formato internacional (ej: +5491121775778)</li>
-                    <li>Haz clic en "Solicitar código de emparejamiento"</li>
-                    <li>Recibirás un código de 8 dígitos</li>
-                    <li>Ingresa ese código en tu aplicación de WhatsApp: Configuración > Dispositivos Vinculados > Vincular un dispositivo</li>
-                </ol>
-            </div>
-            <input type="tel" id="phoneNumber" placeholder="Ej: +5491121775778" />
-            <br>
-            <button id="requestPairingCode">Solicitar código de emparejamiento</button>
+                <h2>Crear / Seleccionar sesión (QR)</h2>
+                <div class="instructions">
+                    <p><strong>Nota:</strong> Ingresa un nombre de sesión único (ej: "office", "test1"). Cada sesión tendrá su propia carpeta en `auth_info_baileys`.</p>
+                </div>
+                <input type="text" id="sessionId" placeholder="sessionId (ej: office)" />
+                <br>
+                <button id="startSession">Iniciar sesión (generar QR)</button>
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Iniciando sesión...</p>
+                </div>
             
-            <div class="loading" id="loading">
-                <div class="spinner"></div>
-                <p>Solicitando código de emparejamiento...</p>
+                <div id="pairingCodeContainer" style="display: none;">
+                    <h3>Tu código de emparejamiento:</h3>
+                    <div id="pairingCode" class="pairing-code"></div>
+                    <p>Ingresa este código en tu aplicación de WhatsApp (si fuese necesario)</p>
+                </div>
             </div>
-            
-            <div id="pairingCodeContainer" style="display: none;">
-                <h3>Tu código de emparejamiento:</h3>
-                <div id="pairingCode" class="pairing-code"></div>
-                <p>Ingresa este código en tu aplicación de WhatsApp</p>
-            </div>
-        </div>
+        
         
         <div id="userInfo" style="display: none;">
             <h2>Usuario conectado</h2>
@@ -190,10 +192,16 @@
         
         socket.on('qr', (qr) => {
             console.log('Código QR recibido');
-            qrCode.textContent = qr;
+            // qr may be object { sessionId, qr } or string
+            if (qr && qr.qr) {
+                qrCode.textContent = qr.qr;
+            } else {
+                qrCode.textContent = qr;
+            }
             qrSection.style.display = 'block';
             connectionStatus.className = 'status disconnected';
             connectionStatus.textContent = 'Esperando escaneo del código QR...';
+            fetchSessions();
         });
         
         socket.on('pairingCode', (code) => {
@@ -214,61 +222,120 @@
             connectionStatus.textContent = '¡Conectado a WhatsApp!';
             
             userInfo.style.display = 'block';
-            userDetails.textContent = JSON.stringify(user, null, 2);
+            // user may be { sessionId, user } when emitted by server
+            if (user && user.user) {
+                userDetails.textContent = JSON.stringify(user.user, null, 2);
+            } else {
+                userDetails.textContent = JSON.stringify(user, null, 2);
+            }
+            fetchSessions();
         });
         
-        // Request pairing code
-        requestPairingCodeBtn.addEventListener('click', async () => {
-            const phoneNumber = phoneNumberInput.value.trim();
-            
-            if (!phoneNumber) {
-                alert('Por favor ingresa un número de teléfono');
+        // Start session (generate QR)
+        const startSessionBtn = document.getElementById('startSession');
+        const sessionIdInput = document.getElementById('sessionId');
+        startSessionBtn.addEventListener('click', async () => {
+            const sessionId = sessionIdInput.value.trim();
+            if (!sessionId) {
+                alert('Por favor ingresa un sessionId');
                 return;
             }
-            
+
             try {
                 loading.style.display = 'block';
-                pairingCodeContainer.style.display = 'none';
-                
-                const response = await fetch('/pair', {
+                // Join the Socket.IO room for this session so we receive QR events
+                socket.emit('join', sessionId);
+
+                const response = await fetch('/session', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ phoneNumber })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId })
                 });
-                
+
                 const data = await response.json();
-                
-                if (!response.ok) {
-                    loading.style.display = 'none';
-                    alert('Error: ' + data.error);
-                }
-                // If response is ok, the pairing code will be received via socket event
-            } catch (error) {
-                console.error('Error requesting pairing code:', error);
                 loading.style.display = 'none';
-                alert('Error al solicitar el código de emparejamiento: ' + error.message);
+                if (!response.ok) {
+                    alert('Error creando sesión: ' + data.error);
+                    return;
+                }
+
+                // show QR section waiting for server emit
+                qrSection.style.display = 'block';
+                connectionStatus.className = 'status disconnected';
+                connectionStatus.textContent = `Esperando QR para session "${sessionId}"...`;
+            } catch (err) {
+                loading.style.display = 'none';
+                console.error('Error iniciando sesión:', err);
+                alert('Error iniciando sesión: ' + (err?.message || err));
             }
         });
         
-        // Check initial connection status
-        fetch('/status')
-            .then(response => response.json())
-            .then(data => {
-                if (data.connected) {
-                    connectionStatus.className = 'status connected';
-                    connectionStatus.textContent = '¡Conectado a WhatsApp!';
-                    userInfo.style.display = 'block';
-                    userDetails.textContent = JSON.stringify(data.user, null, 2);
-                } else {
-                    connectionStatus.className = 'status disconnected';
-                    connectionStatus.textContent = 'Desconectado de WhatsApp';
+        // Fetch and render sessions
+        async function fetchSessions() {
+            try {
+                const res = await fetch('/sessions');
+                if (!res.ok) return;
+                const sessions = await res.json();
+                const list = document.getElementById('sessionsList');
+                list.innerHTML = '';
+                if (!sessions || sessions.length === 0) {
+                    list.innerHTML = '<li>No hay sesiones</li>';
+                    return;
                 }
-            })
-            .catch(error => {
-                console.error('Error checking status:', error);
-            });
+                sessions.forEach(s => {
+                        const li = document.createElement('li');
+                        li.style.display = 'flex';
+                        li.style.justifyContent = 'space-between';
+                        li.style.alignItems = 'center';
+
+                        const label = document.createElement('span');
+                        label.textContent = `${s.sessionId} — ${s.connected ? 'Conectada' : 'Desconectada'}`;
+                        li.appendChild(label);
+
+                        // disconnect button
+                        const btn = document.createElement('button');
+                        btn.textContent = '✖';
+                        btn.title = 'Desconectar sesión';
+                        btn.style.background = '#ff4d4f';
+                        btn.style.border = 'none';
+                        btn.style.color = '#fff';
+                        btn.style.borderRadius = '4px';
+                        btn.style.padding = '4px 8px';
+                        btn.style.cursor = 'pointer';
+                        btn.addEventListener('click', async (e) => {
+                            e.stopPropagation();
+                            if (!confirm(`Desconectar sesión ${s.sessionId}?`)) return;
+                            try {
+                                const res = await fetch(`/session/${encodeURIComponent(s.sessionId)}`, { method: 'DELETE' });
+                                if (!res.ok) {
+                                    const err = await res.json().catch(()=>({error:'unknown'}));
+                                    alert('Error desconectando: ' + (err.error || JSON.stringify(err)));
+                                    return;
+                                }
+                                fetchSessions();
+                            } catch (err) {
+                                console.error('Error disconnecting session:', err);
+                                alert('Error desconectando sesión: ' + (err?.message || err));
+                            }
+                        });
+                        li.appendChild(btn);
+                    if (s.connected && s.user) {
+                            const small = document.createElement('small');
+                            small.style.display = 'block';
+                            small.style.marginLeft = '8px';
+                            small.textContent = JSON.stringify(s.user);
+                            li.appendChild(small);
+                    }
+                        list.appendChild(li);
+                });
+            } catch (err) {
+                console.error('Error fetching sessions:', err);
+            }
+        }
+
+        // Initial fetch and periodic refresh
+        fetchSessions();
+        setInterval(fetchSessions, 5000);
     </script>
 </body>
 </html>
