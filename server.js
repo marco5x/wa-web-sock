@@ -1,143 +1,64 @@
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
-import qrcode from 'qrcode-terminal';
-import { Boom } from '@hapi/boom';
 import fs from 'fs';
 import path from 'path';
 
 // Import Baileys functions
-import makeWASocket, {
-   useMultiFileAuthState,
-   DisconnectReason,
-   fetchLatestBaileysVersion,
-   Browsers
-} from 'baileys';
+import WhatsAppSession from './WhatsAppSession.js';
+import createRouter from './routes.js'; // Import the router factory
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Serve static files from public directory
+app.use(express.json()); // Moved to the correct position
+
+// Map to store active WhatsApp sessions
+const sessions = new Map(); // Key: sessionId, Value: WhatsAppSession instance
+
+// Function to delete a session
+const deleteSession = (sessionId) => {
+   sessions.delete(sessionId);
+   const sessionPath = path.join(process.cwd(), 'auth_info_baileys', sessionId);
+   if (fs.existsSync(sessionPath)) {
+      fs.rmSync(sessionPath, { recursive: true, force: true });
+      console.log(`Session data for ${sessionId} deleted.`);
+   }
+   io.emit('sessionDeleted', sessionId); // Notify clients
+};
+
+// Use the router for API endpoints first
+app.use('/', createRouter(io, sessions, deleteSession));
+
+// Then serve static files from public directory
 app.use(express.static('public'));
-app.use(express.json());
 
 // Serve the main page
 app.get('/', (req, res) => {
    res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-// Endpoint to get connection status
-app.get('/status', (req, res) => {
-   res.json({
-      connected: sock?.user ? true : false,
-      user: sock?.user || null
-   });
-});
-
-// Endpoint to request pairing code
-app.post('/pair', async (req, res) => {
-   const { phoneNumber } = req.body;
-   if (!phoneNumber) {
-      return res.status(400).json({ error: 'Phone number is required' });
-   }
-
-   try {
-      // Format phone number (E.164 without +)
-      const formattedNumber = phoneNumber.replace(/[^0-9]/g, '');
-
-      // Store the phone number to use when connection is ready
-      pendingPairingNumber = formattedNumber;
-
-      // If socket exists, try to request code immediately
-      if (sock) {
-         const code = await sock.requestPairingCode(formattedNumber);
-         console.log('Pairing code sent:', code);
-         io.emit('pairingCode', code);
-         return res.json({ code });
-      } else {
-         // Create a new socket connection if one doesn't exist
-         await connectToWhatsApp();
-         // The pairing code will be requested in the connection.update event
-         res.json({ message: 'Pairing code request initiated. Check your phone for the code.' });
-      }
-   } catch (error) {
-      console.error('Error requesting pairing code:', error);
-      res.status(500).json({ error: error.message });
-   }
-});
-
-let sock;
-let pendingPairingNumber = null;
-
-async function connectToWhatsApp() {
-   const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-   const { version } = await fetchLatestBaileysVersion();
-
-   sock = makeWASocket({
-      version,
-      printQRInTerminal: false, // We'll handle QR display ourselves
-      auth: state,
-      browser: Browsers.macOS('Desktop'),
-      syncFullHistory: true
-   });
-
-   sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qr } = update;
-
-      if (qr) {
-         // Convert QR to text and emit to frontend
-         qrcode.generate(qr, { small: true }, (qrcode) => {
-            console.log('QR Code received, check the website');
-            io.emit('qr', qrcode);
-         });
-      }
-
-      // According to documentation, we should request pairing code when connection is "connecting" or QR is present
-      if ((connection === "connecting" || !!qr) && pendingPairingNumber) {
-         try {
-            console.log("EL PHONE NUMBER 📲", pendingPairingNumber);
-
-            const code = await sock.requestPairingCode(pendingPairingNumber);
-            console.log('Pairing code sent:', code);
-            io.emit('pairingCode', code);
-            pendingPairingNumber = null; // Clear the pending number
-         } catch (error) {
-            console.error('Error requesting pairing code:', error);
-         }
-      }
-
-      if (connection === 'close') {
-         const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-         console.log('Connection closed due to', lastDisconnect?.error, ', reconnecting:', shouldReconnect);
-         if (shouldReconnect) {
-            connectToWhatsApp();
-         }
-      } else if (connection === 'open') {
-         console.log('Connected to WhatsApp');
-         io.emit('connected', sock.user);
-      }
-   });
-
-   sock.ev.on('creds.update', async () => {
-      await saveCreds();
-   });
-
-   // Handle incoming messages
-   sock.ev.on('messages.upsert', async (m) => {
-      // Process incoming messages if needed
-      console.log('New message received:', JSON.stringify(m, undefined, 2));
-   });
-}
-
 // Handle socket connections
 io.on('connection', (socket) => {
-   console.log('A user connected');
+   console.log('User connected');
 
-   // Send current connection status to new clients
-   if (sock?.user) {
-      socket.emit('connected', sock.user);
-   }
+   socket.on('joinSession', (sessionId) => {
+      socket.join(sessionId);
+      console.log(`User joined session room: ${sessionId}`);
+
+      const session = sessions.get(sessionId);
+      if (session) {
+         // Send current status to the newly joined client
+         socket.emit('status', session.getStatus());
+         if (session.qrCode) {
+            socket.emit('qr', session.qrCode);
+         }
+         if (session.isConnected) {
+            socket.emit('connected', session.user);
+         }
+      }
+   });
 
    socket.on('disconnect', () => {
       console.log('User disconnected');
@@ -145,7 +66,40 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
+server.listen(PORT, async () => { // Make the callback function async
    console.log(`Server running on port ${PORT}`);
-   connectToWhatsApp();
+   // Initialize existing sessions on startup
+   const authInfoPath = path.join(process.cwd(), 'auth_info_baileys');
+   if (fs.existsSync(authInfoPath)) {
+      const sessionDirs = fs.readdirSync(authInfoPath, { withFileTypes: true })
+         .filter(dirent => dirent.isDirectory())
+         .map(dirent => dirent.name);
+
+      for (const sessionId of sessionDirs) {
+         const session = new WhatsAppSession(sessionId, io, deleteSession); // Pass the deleteSession callback
+         sessions.set(sessionId, session);
+         
+         await session.loadAuthState(); // Ensure auth state is loaded
+
+         if (!session.isRegistered()) {
+            console.log(`Session ${sessionId}: Not registered. Deleting session data and skipping connection.`);
+            deleteSession(sessionId);
+            continue; // Skip connection attempt for unregistered sessions
+         }
+
+         // Attempt to connect the session with a timeout
+         Promise.race([
+            session.connect(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 30000)) // 30 seconds timeout
+         ])
+         .then(() => {
+            console.log(`Session ${sessionId}: Reconnected successfully.`);
+         })
+         .catch((error) => {
+            console.error(`Session ${sessionId}: Failed to reconnect or timed out:`, error.message);
+            deleteSession(sessionId); // Delete the session if it fails to connect or times out
+         });
+         console.log(`Attempting to reconnect session: ${sessionId}`);
+      }
+   }
 });

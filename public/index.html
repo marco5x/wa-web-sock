@@ -120,57 +120,86 @@
 </head>
 <body>
     <div class="container">
-        <h1>Conector de WhatsApp Web</h1>
-        
-        <div id="connectionStatus" class="status disconnected">
-            Desconectado de WhatsApp
+        <h1>Conector de WhatsApp Web - Multi-Sesión</h1>
+
+        <div class="session-manager">
+            <h2>Gestionar Sesiones</h2>
+            <input type="text" id="sessionIdInput" placeholder="ID de Sesión (ej: user1)" />
+            <button id="createJoinSessionBtn">Crear/Unirse a Sesión</button>
+            <button id="requestQrCodeBtn" style="display: none;">Solicitar QR para Sesión Actual</button>
+            <button id="deleteSessionBtn" style="display: none; background-color: #dc3545;">Eliminar Sesión Actual</button>
+            <p>Sesión Actual: <strong id="currentSessionDisplay">Ninguna</strong></p>
+            <div id="sessionListContainer">
+                <h3>Sesiones Activas:</h3>
+                <ul id="activeSessionsList"></ul>
+            </div>
         </div>
         
-        <div id="qrSection" style="display: none;">
-            <h2>Escanear código QR</h2>
-            <div class="qr-container">
-                <div id="qrCode" class="qr-code"></div>
-            </div>
-            <p>Escanea este código QR con tu aplicación de WhatsApp</p>
-        </div>
-        
-        <div id="pairingSection" class="pairing-form">
-            <h2>Conectar con código de emparejamiento</h2>
-            <div class="instructions">
-                <p><strong>Instrucciones:</strong></p>
-                <ol>
-                    <li>Ingresa tu número de teléfono en formato internacional (ej: +5491121775778)</li>
-                    <li>Haz clic en "Solicitar código de emparejamiento"</li>
-                    <li>Recibirás un código de 8 dígitos</li>
-                    <li>Ingresa ese código en tu aplicación de WhatsApp: Configuración > Dispositivos Vinculados > Vincular un dispositivo</li>
-                </ol>
-            </div>
-            <input type="tel" id="phoneNumber" placeholder="Ej: +5491121775778" />
-            <br>
-            <button id="requestPairingCode">Solicitar código de emparejamiento</button>
+        <hr>
+
+        <div id="sessionDetails" style="display: none;">
+            <h2>Detalles de la Sesión: <span id="sessionDetailsId"></span></h2>
             
-            <div class="loading" id="loading">
-                <div class="spinner"></div>
-                <p>Solicitando código de emparejamiento...</p>
+            <div id="connectionStatus" class="status disconnected">
+                Desconectado de WhatsApp
             </div>
             
-            <div id="pairingCodeContainer" style="display: none;">
-                <h3>Tu código de emparejamiento:</h3>
-                <div id="pairingCode" class="pairing-code"></div>
-                <p>Ingresa este código en tu aplicación de WhatsApp</p>
+            <div id="qrSection" style="display: none;">
+                <h3>Escanear código QR</h3>
+                <div class="qr-container">
+                    <div id="qrCode" class="qr-code"></div>
+                </div>
+                <p>Escanea este código QR con tu aplicación de WhatsApp</p>
             </div>
-        </div>
-        
-        <div id="userInfo" style="display: none;">
-            <h2>Usuario conectado</h2>
-            <pre id="userDetails"></pre>
+            
+            <div id="pairingSection" class="pairing-form">
+                <h3>Conectar con código de emparejamiento</h3>
+                <div class="instructions">
+                    <p><strong>Instrucciones:</strong></p>
+                    <ol>
+                        <li>Ingresa tu número de teléfono en formato internacional (ej: +5491121775778)</li>
+                        <li>Haz clic en "Solicitar código de emparejamiento"</li>
+                        <li>Recibirás un código de 8 dígitos</li>
+                        <li>Ingresa ese código en tu aplicación de WhatsApp: Configuración > Dispositivos Vinculados > Vincular un dispositivo</li>
+                    </ol>
+                </div>
+                <input type="tel" id="phoneNumber" placeholder="Ej: +5491121775778" />
+                <br>
+                <button id="requestPairingCode">Solicitar código de emparejamiento</button>
+                
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Solicitando código de emparejamiento...</p>
+                </div>
+                
+                <div id="pairingCodeContainer" style="display: none;">
+                    <h4>Tu código de emparejamiento:</h4>
+                    <div id="pairingCode" class="pairing-code"></div>
+                    <p>Ingresa este código en tu aplicación de WhatsApp</p>
+                </div>
+            </div>
+            
+            <div id="userInfo" style="display: none;">
+                <h3>Usuario conectado</h3>
+                <pre id="userDetails"></pre>
+            </div>
         </div>
     </div>
 
     <script>
         const socket = io();
+        let currentSessionId = null;
         
         // DOM Elements
+        const sessionIdInput = document.getElementById('sessionIdInput');
+        const createJoinSessionBtn = document.getElementById('createJoinSessionBtn');
+        const requestQrCodeBtn = document.getElementById('requestQrCodeBtn');
+        const deleteSessionBtn = document.getElementById('deleteSessionBtn');
+        const currentSessionDisplay = document.getElementById('currentSessionDisplay');
+        const activeSessionsList = document.getElementById('activeSessionsList');
+        const sessionDetails = document.getElementById('sessionDetails');
+        const sessionDetailsId = document.getElementById('sessionDetailsId');
+
         const connectionStatus = document.getElementById('connectionStatus');
         const qrSection = document.getElementById('qrSection');
         const qrCode = document.getElementById('qrCode');
@@ -182,43 +211,243 @@
         const userInfo = document.getElementById('userInfo');
         const userDetails = document.getElementById('userDetails');
         const loading = document.getElementById('loading');
-        
-        // Socket event listeners
-        socket.on('connect', () => {
-            console.log('Conectado al servidor');
-        });
-        
-        socket.on('qr', (qr) => {
-            console.log('Código QR recibido');
-            qrCode.textContent = qr;
-            qrSection.style.display = 'block';
-            connectionStatus.className = 'status disconnected';
-            connectionStatus.textContent = 'Esperando escaneo del código QR...';
-        });
-        
-        socket.on('pairingCode', (code) => {
-            console.log('Código de emparejamiento recibido:', code);
-            loading.style.display = 'none';
-            pairingCode.textContent = code;
-            pairingCodeContainer.style.display = 'block';
-            connectionStatus.className = 'status disconnected';
-            connectionStatus.textContent = 'Esperando confirmación del código de emparejamiento...';
-        });
-        
-        socket.on('connected', (user) => {
-            console.log('Conectado a WhatsApp', user);
+
+        function resetSessionDisplay() {
             qrSection.style.display = 'none';
             pairingCodeContainer.style.display = 'none';
             loading.style.display = 'none';
-            connectionStatus.className = 'status connected';
-            connectionStatus.textContent = '¡Conectado a WhatsApp!';
-            
-            userInfo.style.display = 'block';
-            userDetails.textContent = JSON.stringify(user, null, 2);
+            userInfo.style.display = 'none';
+            connectionStatus.className = 'status disconnected';
+            connectionStatus.textContent = 'Desconectado de WhatsApp';
+            qrCode.textContent = '';
+            pairingCode.textContent = '';
+            userDetails.textContent = '';
+        }
+
+        function updateSessionDisplay(sessionData) {
+            resetSessionDisplay();
+            if (!sessionData) {
+                sessionDetails.style.display = 'none';
+                currentSessionDisplay.textContent = 'Ninguna';
+                requestQrCodeBtn.style.display = 'none';
+                deleteSessionBtn.style.display = 'none';
+                return;
+            }
+
+            sessionDetails.style.display = 'block';
+            sessionDetailsId.textContent = sessionData.sessionId;
+            currentSessionDisplay.textContent = sessionData.sessionId;
+            requestQrCodeBtn.style.display = 'inline-block';
+            deleteSessionBtn.style.display = 'inline-block';
+
+            if (sessionData.connected) {
+                connectionStatus.className = 'status connected';
+                connectionStatus.textContent = '¡Conectado a WhatsApp!';
+                userInfo.style.display = 'block';
+                userDetails.textContent = JSON.stringify(sessionData.user, null, 2);
+            } else if (sessionData.qrCode) {
+                qrSection.style.display = 'block';
+                qrCode.textContent = sessionData.qrCode;
+                connectionStatus.className = 'status disconnected';
+                connectionStatus.textContent = 'Esperando escaneo del código QR...';
+            } else {
+                connectionStatus.className = 'status disconnected';
+                connectionStatus.textContent = 'Desconectado de WhatsApp';
+            }
+        }
+
+        // Socket event listeners
+        socket.on('connect', () => {
+            console.log('Conectado al servidor');
+            if (currentSessionId) {
+                socket.emit('joinSession', currentSessionId);
+            }
+            fetchActiveSessions();
+        });
+
+        socket.on('status', (sessionData) => {
+            if (sessionData.sessionId === currentSessionId) {
+                updateSessionDisplay(sessionData);
+            }
+            // Also update the list of active sessions if needed
+            fetchActiveSessions();
         });
         
-        // Request pairing code
+        socket.on('qr', (qr) => {
+            if (currentSessionId) { // Assuming QR is for the current session
+                console.log(`Código QR recibido para sesión ${currentSessionId}`);
+                qrCode.textContent = qr;
+                qrSection.style.display = 'block';
+                connectionStatus.className = 'status disconnected';
+                connectionStatus.textContent = 'Esperando escaneo del código QR...';
+                loading.style.display = 'none';
+                pairingCodeContainer.style.display = 'none';
+            }
+        });
+        
+        socket.on('pairingCode', (code) => {
+            if (currentSessionId) { // Assuming pairing code is for the current session
+                console.log(`Código de emparejamiento recibido para sesión ${currentSessionId}:`, code);
+                loading.style.display = 'none';
+                pairingCode.textContent = code;
+                pairingCodeContainer.style.display = 'block';
+                connectionStatus.className = 'status disconnected';
+                connectionStatus.textContent = 'Esperando confirmación del código de emparejamiento...';
+                qrSection.style.display = 'none';
+            }
+        });
+        
+        socket.on('connected', (user) => {
+            if (currentSessionId) { // Assuming connected is for the current session
+                console.log(`Sesión ${currentSessionId} conectada a WhatsApp`, user);
+                qrSection.style.display = 'none';
+                pairingCodeContainer.style.display = 'none';
+                loading.style.display = 'none';
+                connectionStatus.className = 'status connected';
+                connectionStatus.textContent = '¡Conectado a WhatsApp!';
+                
+                userInfo.style.display = 'block';
+                userDetails.textContent = JSON.stringify(user, null, 2);
+            }
+        });
+
+        socket.on('disconnected', () => {
+            if (currentSessionId) { // Assuming disconnected is for the current session
+                console.log(`Sesión ${currentSessionId} desconectada`);
+                resetSessionDisplay();
+                connectionStatus.textContent = 'Desconectado de WhatsApp';
+            }
+        });
+
+        socket.on('pairingCodeError', (error) => {
+            if (currentSessionId) {
+                console.error(`Session ${currentSessionId}: Pairing code error:`, error);
+                loading.style.display = 'none';
+                alert(`Error al solicitar el código de emparejamiento para la sesión ${currentSessionId}: ${error.error}`);
+                resetSessionDisplay();
+            }
+        });
+
+        socket.on('sessionDeleted', (deletedSessionId) => {
+            console.log(`Session ${deletedSessionId} was deleted from the server.`);
+            if (currentSessionId === deletedSessionId) {
+                currentSessionId = null;
+                updateSessionDisplay(null); // Reset display
+            }
+            fetchActiveSessions(); // Refresh the list of active sessions
+        });
+
+        deleteSessionBtn.addEventListener('click', async () => {
+            if (!currentSessionId) {
+                alert('No hay una sesión seleccionada para eliminar.');
+                return;
+            }
+
+            if (!confirm(`¿Estás seguro de que quieres eliminar la sesión "${currentSessionId}"? Esto eliminará todos los datos de autenticación.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/session/${currentSessionId}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert(data.message);
+                    currentSessionId = null;
+                    updateSessionDisplay(null);
+                    fetchActiveSessions();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error deleting session:', error);
+                alert('Error al eliminar la sesión: ' + error.message);
+            }
+        });
+
+        async function fetchActiveSessions() {
+            try {
+                const response = await fetch('/status');
+                const sessionsData = await response.json();
+                activeSessionsList.innerHTML = '';
+                if (sessionsData.length === 0) {
+                    activeSessionsList.innerHTML = '<li>No hay sesiones activas.</li>';
+                } else {
+                    sessionsData.forEach(session => {
+                        const li = document.createElement('li');
+                        li.textContent = `${session.sessionId} - ${session.connected ? 'Conectado' : 'Desconectado'}`;
+                        li.style.cursor = 'pointer';
+                        li.onclick = () => selectSession(session.sessionId);
+                        activeSessionsList.appendChild(li);
+                    });
+                }
+            } catch (error) {
+                console.error('Error fetching active sessions:', error);
+            }
+        }
+
+        async function selectSession(sessionId) {
+            currentSessionId = sessionId;
+            currentSessionDisplay.textContent = sessionId;
+            socket.emit('joinSession', sessionId); // Join the room for this session
+            
+            // Fetch status for the selected session
+            try {
+                const response = await fetch(`/status?sessionId=${sessionId}`);
+                const sessionData = await response.json();
+                updateSessionDisplay(sessionData);
+            } catch (error) {
+                console.error(`Error fetching status for session ${sessionId}:`, error);
+                resetSessionDisplay();
+            }
+        }
+        
+        // Event listeners for buttons
+        createJoinSessionBtn.addEventListener('click', async () => {
+            const sessionId = sessionIdInput.value.trim();
+            if (!sessionId) {
+                alert('Por favor ingresa un ID de Sesión');
+                return;
+            }
+            selectSession(sessionId);
+            // No need to call /pair here, just select and join the room.
+            // The /pair endpoint will be called when requesting QR or pairing code.
+        });
+
+        requestQrCodeBtn.addEventListener('click', async () => {
+            if (!currentSessionId) {
+                alert('Por favor selecciona o crea una sesión primero.');
+                return;
+            }
+            try {
+                resetSessionDisplay();
+                connectionStatus.textContent = 'Solicitando QR...';
+                loading.style.display = 'block';
+
+                const response = await fetch('/qr', { // Changed to /qr endpoint
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId: currentSessionId })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    alert('Error: ' + data.error);
+                }
+                loading.style.display = 'none';
+            } catch (error) {
+                console.error('Error requesting QR code:', error);
+                loading.style.display = 'none';
+                alert('Error al solicitar el código QR: ' + error.message);
+            }
+        });
+
         requestPairingCodeBtn.addEventListener('click', async () => {
+            if (!currentSessionId) {
+                alert('Por favor selecciona o crea una sesión primero.');
+                return;
+            }
             const phoneNumber = phoneNumberInput.value.trim();
             
             if (!phoneNumber) {
@@ -230,12 +459,12 @@
                 loading.style.display = 'block';
                 pairingCodeContainer.style.display = 'none';
                 
-                const response = await fetch('/pair', {
+                const response = await fetch('/pair', { // Stays /pair endpoint
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ phoneNumber })
+                    body: JSON.stringify({ sessionId: currentSessionId, phoneNumber })
                 });
                 
                 const data = await response.json();
@@ -252,23 +481,8 @@
             }
         });
         
-        // Check initial connection status
-        fetch('/status')
-            .then(response => response.json())
-            .then(data => {
-                if (data.connected) {
-                    connectionStatus.className = 'status connected';
-                    connectionStatus.textContent = '¡Conectado a WhatsApp!';
-                    userInfo.style.display = 'block';
-                    userDetails.textContent = JSON.stringify(data.user, null, 2);
-                } else {
-                    connectionStatus.className = 'status disconnected';
-                    connectionStatus.textContent = 'Desconectado de WhatsApp';
-                }
-            })
-            .catch(error => {
-                console.error('Error checking status:', error);
-            });
+        // Initial load
+        fetchActiveSessions();
     </script>
 </body>
 </html>
