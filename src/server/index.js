@@ -23,7 +23,7 @@ export function createServer({ port = 3001 } = {}) {
       const { sessionId } = req.body;
       if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
       try {
-        const api = await manager.createSession(sessionId);
+        await manager.createSession(sessionId);
         return res.json({ message: 'Session created', sessionId });
       } catch (err) {
         console.error('Error creating session:', err?.message || err);

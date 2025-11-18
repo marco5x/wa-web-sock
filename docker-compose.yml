@@ -1,0 +1,21 @@
+services:
+  baileys-bot:
+    build: .
+    container_name: baileys-api
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "${BAILEYS_PORT}:${BAILEYS_PORT}" # Asegúrate de tener esta var en tu .env o pon el puerto directo (ej: 3000:3000)
+    volumes:
+      # Mapeamos la carpeta de autenticación para no perder la sesión al reiniciar
+      - ./auth_info_baileys:/app/auth_info_baileys
+    networks:
+      - w_bot_backend_network
+    # Opcional: Si necesitas fijar el usuario para coincidir con tu host
+    # user: "${UID}:${GID}" 
+
+networks:
+  w_bot_backend_network:
+    external: true
+    driver: bridge

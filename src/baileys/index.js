@@ -2,17 +2,18 @@ import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
-  Browsers
+  Browsers,
 } from 'baileys';
 import qrcode from 'qrcode-terminal';
 import fs from 'fs';
 import path from 'path';
+import { sendDbClientWhatsappBaileys, sendMessageToDatabase } from '../utils/client.utils.js';
 
 // Manager that can create multiple Baileys sessions, each with its own auth folder
 export default function createBaileys(io) {
   const sessions = new Map(); // sessionId -> { sock, saveCreds }
 
-  async function createSession(sessionId) {
+  async function createSession(sessionId, organization_id, funnel_id) {
     if (!sessionId) throw new Error('sessionId is required');
     if (sessions.has(sessionId)) return sessions.get(sessionId).api;
 
@@ -81,6 +82,10 @@ export default function createBaileys(io) {
         console.log(`[${sessionId}] Connected to WhatsApp`);
         try {
           io.to(sessionId).emit('connected', { sessionId, user: sock.user });
+          // console.log("sock ->", sock.user)
+          const number = sock.user.id.split(":")[0]
+          console.log('el number -> 👢', number)
+          await sendDbClientWhatsappBaileys(sessionId, number, organization_id, funnel_id )
         } catch (e) {
           io.emit('connected', { sessionId, user: sock.user });
         }
@@ -92,7 +97,14 @@ export default function createBaileys(io) {
     });
 
     sock.ev.on('messages.upsert', async (m) => {
-      console.log(`[${sessionId}] New message received:`, JSON.stringify(m, undefined, 2));
+      // TODO: aca vamos a enviar los mensajes al backend w_bot
+      // console.log(`[${sessionId}] New message received:`, JSON.stringify(m, undefined, 2));
+      // console.log('el mensaje crudo -> ', m.messages[0])
+      // console.log("le pego  bien ? ->", parsedMessage)
+      if(m?.messages[0]?.senderKeyDistributionMessage || !m?.messages[0]?.key?.remoteJidAlt) return
+      
+      await sendMessageToDatabase(m, sock)
+
     });
 
     const api = {
@@ -163,6 +175,70 @@ export default function createBaileys(io) {
     }
   }
 
+  async function stopSession(sessionId) {
+    if (!sessionId) throw new Error('sessionId required');
+    const entry = sessions.get(sessionId);
+    if (!entry) return;
+
+    try {
+      try {
+        await entry.api.stop();
+      } catch (err) {
+        // ignore
+      }
+
+      try {
+        if (entry.sock?.ws) entry.sock.ws.close();
+        if (entry.sock?.socket) entry.sock.socket.close?.();
+      } catch (err) {
+        // ignore
+      }
+
+      sessions.delete(sessionId);
+
+      try {
+        io.to(sessionId).emit('session:stopped', { sessionId });
+      } catch (e) {
+        io.emit('session:stopped', { sessionId });
+      }
+    } catch (err) {
+      console.error(`[${sessionId}] error stopping session:`, err?.message || err);
+      throw err;
+    }
+  }
+
+  async function stopAllSessions() {
+    const ids = Array.from(sessions.keys());
+    for (const id of ids) {
+      try {
+        await stopSession(id);
+      } catch (err) {
+        console.error(`Error stopping session ${id}:`, err?.message || err);
+      }
+    }
+  }
+
+  async function restoreSessions() {
+    const base = path.join(process.cwd(), 'auth_info_baileys');
+    try {
+      if (!fs.existsSync(base)) return;
+      const files = await fs.promises.readdir(base, { withFileTypes: true });
+      for (const dirent of files) {
+        if (!dirent.isDirectory()) continue;
+        const sessionId = dirent.name;
+        try {
+          // createSession is idempotent if already present
+          await createSession(sessionId);
+          console.log(`[${sessionId}] restored session from disk`);
+        } catch (err) {
+          console.error(`Error restoring session ${sessionId}:`, err?.message || err);
+        }
+      }
+    } catch (err) {
+      console.error('Error restoring sessions:', err?.message || err);
+    }
+  }
+
   function getSession(sessionId) {
     return sessions.get(sessionId)?.api || null;
   }
@@ -171,5 +247,5 @@ export default function createBaileys(io) {
     return Array.from(sessions.keys());
   }
 
-  return { createSession, getSession, listSessions, deleteSession };
+  return { createSession, getSession, listSessions, deleteSession, stopSession, stopAllSessions, restoreSessions };
 }
