@@ -1,13 +1,10 @@
 import {
-  downloadMediaMessage, 
+  downloadMediaMessage,
   getContentType
 } from 'baileys';
-
-
 function bufferToBase64(buffer) {
   return buffer.toString('base64');
 }
-
 /**
  * @description Añade el número de WhatsApp de la madre en la base de datos
  * @param {string} id - ID del cliente
@@ -16,8 +13,6 @@ function bufferToBase64(buffer) {
  * @throws {Error} Si ocurre un error al añadir el número
  */
 export async function sendDbClientWhatsappBaileys(id, number, organization_id, funnel_id) {
-  console.log("ANtes del ENVIAR AL BACK 🔴", id, number, organization_id, funnel_id);
-  
   await fetch(`${process.env.URL_DB}/add_whatsapp_web/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -32,25 +27,14 @@ export async function sendDbClientWhatsappBaileys(id, number, organization_id, f
 }
 
 export async function sendMessageToDatabase(m, sock) {
-
     const msjeObject = m.messages[0]
-
     const msje = msjeObject.message
-
-    // console.log(msjeObject, 'el msje object')
-
-    // console.log(downloadMediaMessage)
-
-    // console.log(getContentType)
-
     const message_type = getContentType(msje)
-
-    // console.log(message_type, 'el type')
-
     let finallyJid;
     let body;
+    
     const posibledLid = m?.messages[0]?.key?.remoteJidAlt
-
+    
     if(posibledLid.includes("lid")) {
         finallyJid = m?.messages[0]?.key?.remoteJid
         body = msje?.extendedTextMessage?.text
@@ -59,63 +43,67 @@ export async function sendMessageToDatabase(m, sock) {
         body = msje?.conversation
     }
 
-
-    const from = finallyJid.split("@")[0]
+    const from = finallyJid.split("@")[0] + "@c.us"
+    console.log("DESDE 📨",from);
+    console.log("PARA 🪵",sock?.authState?.creds.me?.id.split(":")[0] + "@c.us");
+   
+    
     const payload = {
-            ...m,
-            _data: {
-              from,
-              body
-            }
-          }
+      ...m,
+      _data: {
+        from,
+        body,
+        to: sock?.authState?.creds.me?.id.split(":")[0] + "@c.us"
+      },
+      type: "chat"
+    }
 
-    // console.log("payload -> ", payload)
     payload._data.hasMedia = false
-
-    // Para imágenes  
-    if (message_type === 'imageMessage') {  
-        const buffer = await downloadMediaMessage(msjeObject, 'buffer', {}, {   
-            reuploadRequest: sock.updateMediaMessage  
+    // Para imágenes
+    if (message_type === 'imageMessage') {
+        const buffer = await downloadMediaMessage(msjeObject, 'buffer', {}, {
+            reuploadRequest: sock.updateMediaMessage
         })
-
-        // console.log("EL BUFFER =====> ", buffer)
-        // usar buffer...  
         payload._data.body = bufferToBase64(buffer)
         payload._data.hasMedia = true
+        payload.type = "image"
     }
-
     // Para documentos y stickers
-    if (message_type === 'documentMessage' || message_type === "stickerMessage") {  
-        const buffer = await downloadMediaMessage(msjeObject, 'buffer', {})  
-        // usar buffer...
+    if (message_type === 'documentMessage' || message_type === "stickerMessage") {
+        const buffer = await downloadMediaMessage(msjeObject, 'buffer', {})
         payload._data.body = bufferToBase64(buffer)
         payload._data.hasMedia = true
+        payload.type = message_type === "documentMessage" ? "document" : "sticker"
     }
-    
-
-    
-    
-    // console.log("el payload 📢", payload)
-
-  // 🚀 5️⃣ Enviar al backend (estructura intacta)
+    if (message_type === 'audioMessage') {
+        const buffer = await downloadMediaMessage(
+            m,
+            'buffer',
+            {},
+            { reuploadRequest: sock.updateMediaMessage }
+        )
+        // Verificar si es PTT (nota de voz)
+        const isPTT = m.message.audioMessage?.ptt
+          payload._data.body = bufferToBase64(buffer)
+          payload._data.hasMedia = true
+          payload.type = isPTT ? "ptt" : "audio"
+    }
   try {
     const response = await fetch(`${process.env.URL_DB_WH}/whatsapp_web/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-
     if (!response.ok) {
       console.error(
         `Error al enviar mensaje: ${response.status} ${response.statusText}`
       );
     } else {
       console.log(
-        `Mensaje de ${payload._data.from || ""} enviado correctamente ✅`
+        `Mensaje de ${payload._data.from || ""} enviado correctamente :marca_de_verificación_blanca:`
       );
     }
   } catch (error) {
     console.error("Error al enviar el mensaje al backend:", error);
   }
 }
-

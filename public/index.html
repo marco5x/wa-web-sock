@@ -249,7 +249,7 @@
                 const response = await fetch('/session', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sessionId })
+                    body: JSON.stringify({ sessionId, organization_id:"1", funnel_id: "1" })
                 });
 
                 const data = await response.json();

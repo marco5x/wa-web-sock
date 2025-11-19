@@ -13,8 +13,8 @@ import { sendDbClientWhatsappBaileys, sendMessageToDatabase } from '../utils/cli
 export default function createBaileys(io) {
   const sessions = new Map(); // sessionId -> { sock, saveCreds }
 
-  async function createSession(sessionId) {
-    console.log("DATA",{sessionId});
+  async function createSession(sessionId, organization_id, funnel_id) {
+    console.log("DATA createSession⚡",{sessionId, organization_id, funnel_id});
     
     if (!sessionId) throw new Error('sessionId is required');
     if (sessions.has(sessionId)) return sessions.get(sessionId).api;
@@ -23,12 +23,23 @@ export default function createBaileys(io) {
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     const { version } = await fetchLatestBaileysVersion();
 
+    const silentLogger = {  
+      level: 'silent',  
+      child: () => silentLogger,  
+      trace: () => {},  
+      debug: () => {},  
+      info: () => {},  
+      warn: () => {},  
+      error: () => {}  
+    }
+
     const sock = makeWASocket({
       version,
       printQRInTerminal: false,
       auth: state,
       browser: Browsers.macOS('Desktop'),
       syncFullHistory: true,
+      logger: silentLogger,
     });
 
     sock.ev.on('connection.update', async (update) => {
@@ -75,7 +86,7 @@ export default function createBaileys(io) {
               // ignore close errors
             }
 
-            await createSession(sessionId);
+            await createSession(sessionId, organization_id, funnel_id);
           } catch (err) {
             console.error(`[${sessionId}] reconnect error:`, err?.message || err);
           }
@@ -84,9 +95,8 @@ export default function createBaileys(io) {
         console.log(`[${sessionId}] Connected to WhatsApp`);
         try {
           io.to(sessionId).emit('connected', { sessionId, user: sock.user });
-          // console.log("sock ->", sock.user)
           const number = sock.user.id.split(":")[0]
-          console.log('el number -> 👢', number)
+          
           await sendDbClientWhatsappBaileys(sessionId, number, organization_id, funnel_id )
         } catch (e) {
           io.emit('connected', { sessionId, user: sock.user });

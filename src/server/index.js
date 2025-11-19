@@ -21,8 +21,11 @@ export function createServer() {
     // Create a new session and start its connection. Expects { sessionId }
     app.post('/session', async (req, res) => {
       const { sessionId, organization_id, funnel_id } = req.body;
+      console.log("DSDE HTML 👌",{ sessionId, organization_id, funnel_id } );
+      
       if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
       try {
+        //const sessionWithSesion = `${sessionId}-${organization_id}`
         await manager.createSession(sessionId, organization_id, funnel_id);
         return res.json({ message: 'Session created', sessionId });
       } catch (err) {
