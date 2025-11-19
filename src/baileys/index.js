@@ -13,7 +13,9 @@ import { sendDbClientWhatsappBaileys, sendMessageToDatabase } from '../utils/cli
 export default function createBaileys(io) {
   const sessions = new Map(); // sessionId -> { sock, saveCreds }
 
-  async function createSession(sessionId, organization_id, funnel_id) {
+  async function createSession(sessionId) {
+    console.log("DATA",{sessionId});
+    
     if (!sessionId) throw new Error('sessionId is required');
     if (sessions.has(sessionId)) return sessions.get(sessionId).api;
 
@@ -26,7 +28,7 @@ export default function createBaileys(io) {
       printQRInTerminal: false,
       auth: state,
       browser: Browsers.macOS('Desktop'),
-      syncFullHistory: true
+      syncFullHistory: true,
     });
 
     sock.ev.on('connection.update', async (update) => {

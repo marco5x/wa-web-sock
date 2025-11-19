@@ -16,6 +16,8 @@ function bufferToBase64(buffer) {
  * @throws {Error} Si ocurre un error al añadir el número
  */
 export async function sendDbClientWhatsappBaileys(id, number, organization_id, funnel_id) {
+  console.log("ANtes del ENVIAR AL BACK 🔴", id, number, organization_id, funnel_id);
+  
   await fetch(`${process.env.URL_DB}/add_whatsapp_web/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

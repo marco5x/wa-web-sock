@@ -3,7 +3,7 @@ import http from 'http';
 import path from 'path';
 import { Server } from 'socket.io';
 
-export function createServer({ port = 3001 } = {}) {
+export function createServer() {
   const app = express();
   const server = http.createServer(app);
   const io = new Server(server);
@@ -20,10 +20,10 @@ export function createServer({ port = 3001 } = {}) {
 
     // Create a new session and start its connection. Expects { sessionId }
     app.post('/session', async (req, res) => {
-      const { sessionId } = req.body;
+      const { sessionId, organization_id, funnel_id } = req.body;
       if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
       try {
-        await manager.createSession(sessionId);
+        await manager.createSession(sessionId, organization_id, funnel_id);
         return res.json({ message: 'Session created', sessionId });
       } catch (err) {
         console.error('Error creating session:', err?.message || err);
@@ -74,10 +74,10 @@ export function createServer({ port = 3001 } = {}) {
     io.on('connection', (socket) => {
       console.log('A user connected');
 
-      socket.on('join', (sessionId) => {
+      socket.on('join', (sessionId, organization_id, funnel_id) => {
         if (!sessionId) return;
-        socket.join(sessionId);
-        console.log('Socket joined room', sessionId);
+        socket.join(sessionId, organization_id, funnel_id);
+        //console.log('Socket joined room', sessionId);
       });
 
       socket.on('leave', (sessionId) => {
