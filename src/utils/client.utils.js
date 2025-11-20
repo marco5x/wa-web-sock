@@ -27,6 +27,8 @@ export async function sendDbClientWhatsappBaileys(id, number, organization_id, f
 }
 
 export async function sendMessageToDatabase(m, sock) {
+  console.log("MJE 👉", m);
+  
     const msjeObject = m.messages[0]
     const msje = msjeObject.message
     const message_type = getContentType(msje)
@@ -51,10 +53,12 @@ export async function sendMessageToDatabase(m, sock) {
         from,
         body,
         to: sock?.authState?.creds.me?.id.split(":")[0] + "@c.us",
+        notifyName: msjeObject.pushName,
         type: "chat"
       },
       from,
       to: sock?.authState?.creds.me?.id.split(":")[0] + "@c.us",
+      notifyName: msjeObject.pushName,
       body,
       type: "chat"
     }
