@@ -44,17 +44,18 @@ export async function sendMessageToDatabase(m, sock) {
     }
 
     const from = finallyJid.split("@")[0] + "@c.us"
-    console.log("DESDE 📨",from);
-    console.log("PARA 🪵",sock?.authState?.creds.me?.id.split(":")[0] + "@c.us");
-   
     
     const payload = {
       ...m,
       _data: {
         from,
         body,
-        to: sock?.authState?.creds.me?.id.split(":")[0] + "@c.us"
+        to: sock?.authState?.creds.me?.id.split(":")[0] + "@c.us",
+        type: "chat"
       },
+      from,
+      to: sock?.authState?.creds.me?.id.split(":")[0] + "@c.us",
+      body,
       type: "chat"
     }
 
