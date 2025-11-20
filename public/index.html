@@ -235,7 +235,7 @@
         const startSessionBtn = document.getElementById('startSession');
         const sessionIdInput = document.getElementById('sessionId');
         startSessionBtn.addEventListener('click', async () => {
-            const sessionId = sessionIdInput.value.trim();
+            const sessionId = sessionIdInput.value.trim()+"-1";
             if (!sessionId) {
                 alert('Por favor ingresa un sessionId');
                 return;
