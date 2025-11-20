@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import path from 'path';
 import { Server } from 'socket.io';
+import { deleteClientDb } from '../utils/client.utils.js';
 
 export function createServer() {
   const app = express();
@@ -65,7 +66,9 @@ export function createServer() {
         if (typeof manager.deleteSession !== 'function') {
           return res.status(500).json({ error: 'deleteSession not supported by manager' });
         }
+        const organization_id = sessionId.split("-")[1];
         await manager.deleteSession(sessionId);
+        await deleteClientDb(sessionId, organization_id);
         return res.json({ message: 'Session deleted', sessionId });
       } catch (err) {
         console.error('Error deleting session:', err?.message || err);

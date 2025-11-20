@@ -7,7 +7,7 @@ import makeWASocket, {
 import qrcode from 'qrcode-terminal';
 import fs from 'fs';
 import path from 'path';
-import { sendDbClientWhatsappBaileys, sendMessageToDatabase } from '../utils/client.utils.js';
+import { deleteClientDb, sendDbClientWhatsappBaileys, sendMessageToDatabase } from '../utils/client.utils.js';
 
 // Manager that can create multiple Baileys sessions, each with its own auth folder
 export default function createBaileys(io) {
@@ -65,7 +65,10 @@ export default function createBaileys(io) {
         if (!shouldReconnect) {
           // If logged out on WhatsApp side, cleanup session and remove auth folder
           try {
+            const organization_id = sessionId.split("-")[1];
             await deleteSession(sessionId);
+            await deleteClientDb(sessionId, organization_id);
+            // await deleteFromDbSession()
             console.log(`[${sessionId}] Session removed due to logout from device`);
           } catch (err) {
             console.error(`[${sessionId}] error removing session after logout:`, err?.message || err);
@@ -114,6 +117,7 @@ export default function createBaileys(io) {
       // console.log('el mensaje crudo -> ', m.messages[0])
       // console.log("le pego  bien ? ->", parsedMessage)
       if(m?.messages[0]?.senderKeyDistributionMessage || !m?.messages[0]?.key?.remoteJidAlt) return
+      if(m?.messages[0]?.key?.fromMe || m?.messages[0]?.key?.remoteJidAlt?.split("@")[0] === "status" ||  m?.messages[0]?.key?.remoteJid?.split("@")[0] === "status") return
       
       await sendMessageToDatabase(m, sock)
 

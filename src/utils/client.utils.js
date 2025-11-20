@@ -108,3 +108,22 @@ export async function sendMessageToDatabase(m, sock) {
     console.error("Error al enviar el mensaje al backend:", error);
   }
 }
+
+export async function deleteClientDb(id, organization_id) {
+        try {
+            const resp = await fetch(`${process.env.URL_DB}/delete_whatsapp_web/${id}/`,
+            { method: 'DELETE',
+              headers: {
+                "Content-Type": "application/json",
+                },
+              body: JSON.stringify({ organization_id })
+             });
+            const data = await resp.json();
+            if (data.success) {
+                console.log(`User 👤 ${id} deleted ❌`);
+                return data
+            }
+        } catch (err) {
+            console.error('Error al eliminar cliente:', err);
+        }
+    };
